@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 3001
 const allowedOrigins = [
   'http://localhost:5173', // Vite dev server
   'http://localhost:3000', // Alternative dev port
-  process.env.FRONTEND_URL, // Vercel deployment URL
+  "https://enya-1.vercel.app", // Vercel deployment URL
 ].filter(Boolean)
 
 app.use(cors({
