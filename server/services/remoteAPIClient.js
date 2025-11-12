@@ -25,7 +25,7 @@ export class RemoteAPIClient {
       })
       
       const response = await axios.get(`${this.baseURL}/health`, { 
-        timeout: 10000, // Increased timeout to 10 seconds
+        timeout: 100000, // Increased timeout to 100 seconds
         validateStatus: () => true // Don't throw on any status code
       })
       
