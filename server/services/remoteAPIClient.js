@@ -8,10 +8,21 @@ import FormData from 'form-data'
 export class RemoteAPIClient {
   constructor(node) {
     this.node = node
+
+    // ✅ Default base URL
     this.baseURL = `http://${node.host}:${node.apiPort || 9090}`
+
+    // ✅ If the node is your local machine (e.g. 192.168.27.14), override with ngrok URL
+    if (node.host === '192.168.27.14') {
+      // You can update this dynamically if ngrok restarts
+      this.baseURL = 'https://nondebilitative-han-tentacular.ngrok-free.dev'
+      console.log(`[RemoteAPI] Detected local node (${node.host}), using ngrok URL: ${this.baseURL}`)
+    }
+
+    // Create axios client with chosen base URL
     this.client = axios.create({
       baseURL: this.baseURL,
-      timeout: 10000, // 10 second timeout
+      timeout: 10000, // 10s default
     })
   }
 
@@ -25,21 +36,19 @@ export class RemoteAPIClient {
       })
       
       const response = await axios.get(`${this.baseURL}/health`, { 
-        timeout: 100000, // Increased timeout to 100 seconds
-        validateStatus: () => true // Don't throw on any status code
+        timeout: 100000, // 100 seconds
+        validateStatus: () => true 
       })
       
       console.log(`[RemoteAPI] Response status: ${response.status}`)
       console.log(`[RemoteAPI] Response data:`, JSON.stringify(response.data, null, 2))
       
-      // Check if we got a valid response
       if (response.status === 200) {
-        // Check if response.data exists and has status field
         if (response.data && response.data.status === 'ok') {
           console.log(`[RemoteAPI] Connection test SUCCESS for ${this.baseURL}`)
           return true
         } else {
-          console.error(`[RemoteAPI] Unexpected response format. Expected status: 'ok', got:`, response.data)
+          console.error(`[RemoteAPI] Unexpected response format:`, response.data)
           return false
         }
       } else {
@@ -69,6 +78,8 @@ export class RemoteAPIClient {
     }
   }
 
+  // --- everything else remains unchanged below ---
+
   async getStatus() {
     try {
       const response = await this.client.get('/status')
@@ -86,7 +97,6 @@ export class RemoteAPIClient {
     })
 
     try {
-      // Use axios directly (not this.client) to have better control over form-data
       const response = await axios.post(
         `${this.baseURL}/upload`,
         formData,
@@ -96,7 +106,7 @@ export class RemoteAPIClient {
           },
           maxContentLength: Infinity,
           maxBodyLength: Infinity,
-          timeout: 300000, // 5 minutes for large files
+          timeout: 300000, // 5 mins
           onUploadProgress: (progressEvent) => {
             if (onProgress && progressEvent.total) {
               const percentCompleted = Math.round(
@@ -125,10 +135,9 @@ export class RemoteAPIClient {
 
   async getJob(jobId, timeout = 30000) {
     try {
-      // Use a separate axios call with custom timeout for long-running jobs
       const response = await axios.get(`${this.baseURL}/jobs/${jobId}`, {
-        timeout: timeout,
-        validateStatus: (status) => status < 500, // Don't throw on 4xx errors
+        timeout,
+        validateStatus: (status) => status < 500,
       })
       
       if (response.status >= 400) {
@@ -138,16 +147,12 @@ export class RemoteAPIClient {
       return response.data
     } catch (error) {
       if (error.response) {
-        // Server responded with error status
         throw new Error(`Failed to get job: ${error.response.data?.error || error.message}`)
       } else if (error.code === 'ECONNABORTED') {
-        // Request timeout
         throw new Error(`Request timeout after ${timeout}ms`)
       } else if (error.code === 'ECONNREFUSED') {
-        // Connection refused
         throw new Error(`Connection refused to ${this.baseURL}`)
       } else {
-        // Other errors
         throw new Error(`Failed to get job: ${error.message}`)
       }
     }
@@ -193,7 +198,7 @@ export class RemoteAPIClient {
     try {
       const response = await this.client.get(`/jobs/${jobId}/download/${filename}`, {
         responseType: 'stream',
-        timeout: 600000, // 10 minutes for large video files
+        timeout: 600000,
       })
       return response.data
     } catch (error) {
@@ -205,4 +210,3 @@ export class RemoteAPIClient {
     return `${this.baseURL}/jobs/${jobId}/download/${encodeURIComponent(filename)}`
   }
 }
-
