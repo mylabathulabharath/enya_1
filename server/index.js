@@ -7,7 +7,41 @@ import uploadRouter from './routes/upload.js'
 const app = express()
 const PORT = process.env.PORT || 3001
 
+<<<<<<< HEAD
 app.use(cors())
+=======
+// CORS configuration - allow requests from frontend
+const allowedOrigins = [
+  'http://localhost:5173', // Vite dev server
+  'http://localhost:3000', // Alternative dev port
+  "https://enya-1.vercel.app",
+  "https://enya-1-f6dhsjgbn-bharaths-projects-bea3cd14.vercel.app"// Vercel deployment URL
+].filter(Boolean)
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow requests with no origin (mobile apps, curl, etc.)
+    if (!origin) return callback(null, true)
+    
+    // Allow requests from allowed origins
+    if (allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.some(allowed => origin && origin.startsWith(allowed))) {
+      callback(null, true)
+    } else {
+      // In development, allow all origins for easier testing
+      if (process.env.NODE_ENV === 'development') {
+        callback(null, true)
+      } else {
+        console.warn(`[CORS] Blocked request from origin: ${origin}`)
+        callback(new Error('Not allowed by CORS'))
+      }
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}))
+
+>>>>>>> f488bffd7b83b0d9f15b8d54cb6e31bd04e3836c
 app.use(express.json())
 
 // Request logging middleware
