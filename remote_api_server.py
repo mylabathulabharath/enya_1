@@ -4,7 +4,8 @@
 Remote API Server for Video Pipeline
 This server runs inside Docker containers and handles job execution.
 Install: pip install flask flask-cors
-Run: python remote_api_server.py --hoSt 0.0.0.0 --port 9090
+Run: python remote_api_server.py --hoot 0.0.0.0 --
+port 9090
 """
 
 import os
@@ -25,7 +26,6 @@ CORS(app)
 # Configuration
 WORKSPACE_DIR = '/workspace'
 INPUT_VIDEOS_DIR = os.path.join(WORKSPACE_DIR, 'input_videos')
-OUTPUT_VIDEOS_DIR = os.path.join(WORKSPACE_DIR, 'output_videos_latest')
 ALLOWED_EXTENSIONS = {'mp4', 'avi', 'mov', 'mkv', 'webm'}
 MAX_UPLOAD_SIZE = 10 * 1024 * 1024 * 1024  # 10GB
 
@@ -132,26 +132,10 @@ def list_jobs():
 @app.route('/jobs/<job_id>', methods=['GET'])
 def get_job(job_id):
     """Get job status"""
-    try:
-        with job_lock:
-            if job_id not in jobs:
-                return jsonify({'error': 'Job not found'}), 404
-            
-            job = jobs[job_id].copy()
-            # Ensure all required fields are present
-            if 'status' not in job:
-                job['status'] = 'unknown'
-            if 'progress' not in job:
-                job['progress'] = 0
-            if 'updated_at' not in job:
-                job['updated_at'] = time.time()
-            
-            return jsonify(job)
-    except Exception as e:
-        print(f"[API] Error getting job {job_id}: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': f'Failed to get job: {str(e)}'}), 500
+    with job_lock:
+        if job_id not in jobs:
+            return jsonify({'error': 'Job not found'}), 404
+        return jsonify(jobs[job_id])
 
 
 @app.route('/jobs', methods=['POST'])
@@ -263,10 +247,7 @@ def execute_job(job_id, job):
             if process.returncode == 0:
                 jobs[job_id]['status'] = 'completed'
                 jobs[job_id]['progress'] = 100
-                # Find output files
-                output_files = find_output_files(jobs[job_id])
-                jobs[job_id]['output_files'] = output_files
-                print(f"[API] Job {job_id} completed successfully with {len(output_files)} output files")
+                print(f"[API] Job {job_id} completed successfully")
             else:
                 jobs[job_id]['status'] = 'failed'
                 jobs[job_id]['error'] = f'Pipeline failed with exit code {process.returncode}'
@@ -334,103 +315,6 @@ def parse_progress(line):
     return None
 
 
-def get_original_video_name(job):
-    """Extract original video name from job"""
-    input_method = job.get('input_method', 'manual')
-    
-    if input_method == 'youtube':
-        # For YouTube, the video is downloaded and stored with a name
-        # We need to check the output to find the actual video name
-        # Or we can try to find the most recent file in input_videos
-        # For now, try to extract from output or use a default pattern
-        youtube_url = job.get('youtube_url') or job.get('youtubeUrl', '')
-        # Try to find video files that might have been created
-        if os.path.exists(INPUT_VIDEOS_DIR):
-            video_files = [f for f in os.listdir(INPUT_VIDEOS_DIR) 
-                          if any(f.lower().endswith(ext) for ext in ALLOWED_EXTENSIONS)]
-            if video_files:
-                # Get the most recent file that might match this job
-                video_files.sort(key=lambda f: os.path.getmtime(os.path.join(INPUT_VIDEOS_DIR, f)), reverse=True)
-                return os.path.splitext(video_files[0])[0]
-    else:
-        # For manual path, extract filename
-        manual_path = job.get('manual_path') or job.get('manualPath', '')
-        if manual_path:
-            # Remove path and extension
-            filename = os.path.basename(manual_path)
-            return os.path.splitext(filename)[0]
-    
-    return None
-
-
-def find_output_files(job):
-    """Find output files for a completed job"""
-    video_name = get_original_video_name(job)
-    if not video_name:
-        print(f"[API] Cannot find video name for job")
-        return []
-    
-    # Path structure: output_videos_latest/video_name/final_without_post_process_some_id/
-    video_output_dir = os.path.join(OUTPUT_VIDEOS_DIR, video_name)
-    if not os.path.exists(video_output_dir):
-        print(f"[API] Video output directory does not exist: {video_output_dir}")
-        return []
-    
-    output_files = []
-    try:
-        # Look for subdirectories that start with "final_without_post_process_"
-        for item in os.listdir(video_output_dir):
-            item_path = os.path.join(video_output_dir, item)
-            
-            # Check if it's a directory that matches the pattern
-            if os.path.isdir(item_path) and item.startswith('final_without_post_process_'):
-                print(f"[API] Found output directory: {item_path}")
-                
-                # Look for video files inside this directory
-                for filename in os.listdir(item_path):
-                    filepath = os.path.join(item_path, filename)
-                    
-                    # Check if it's a video file
-                    if os.path.isfile(filepath) and any(filename.lower().endswith(ext) for ext in ALLOWED_EXTENSIONS):
-                        print(f"[API] Found output file: {filepath}")
-                        output_files.append({
-                            'name': filename,
-                            'path': filepath,
-                            'size': os.path.getsize(filepath),
-                            'modified': os.path.getmtime(filepath),
-                            'relative_path': os.path.relpath(filepath, WORKSPACE_DIR),
-                            'directory': item  # Store the subdirectory name for reference
-                        })
-                
-                # If we found files in this directory, we're done (there should only be one file)
-                if output_files:
-                    break
-        
-        # If no files found in subdirectories, check the video_name directory directly (fallback)
-        if not output_files:
-            print(f"[API] No files found in subdirectories, checking video directory directly")
-            for filename in os.listdir(video_output_dir):
-                filepath = os.path.join(video_output_dir, filename)
-                if os.path.isfile(filepath) and any(filename.lower().endswith(ext) for ext in ALLOWED_EXTENSIONS):
-                    output_files.append({
-                        'name': filename,
-                        'path': filepath,
-                        'size': os.path.getsize(filepath),
-                        'modified': os.path.getmtime(filepath),
-                        'relative_path': os.path.relpath(filepath, WORKSPACE_DIR)
-                    })
-        
-        # Sort by modified time, most recent first
-        output_files.sort(key=lambda f: f['modified'], reverse=True)
-        print(f"[API] Found {len(output_files)} output file(s) for video: {video_name}")
-    except Exception as e:
-        print(f"[API] Error finding output files: {e}")
-        import traceback
-        traceback.print_exc()
-    
-    return output_files
-
-
 @app.route('/jobs/<job_id>/cancel', methods=['POST'])
 def cancel_job(job_id):
     """Cancel a job"""
@@ -467,156 +351,28 @@ def list_files():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/jobs/<job_id>/outputs', methods=['GET'])
-def list_job_outputs(job_id):
-    """List output files for a job"""
-    with job_lock:
-        if job_id not in jobs:
-            return jsonify({'error': 'Job not found'}), 404
-        
-        job = jobs[job_id]
-        
-        # If job is completed, find output files
-        if job['status'] == 'completed':
-            output_files = find_output_files(job)
-            # Update job with output files if not already set
-            if 'output_files' not in job or not job.get('output_files'):
-                job['output_files'] = output_files
-            
-            return jsonify({
-                'job_id': job_id,
-                'output_files': output_files,
-                'count': len(output_files)
-            })
-        else:
-            return jsonify({
-                'job_id': job_id,
-                'output_files': [],
-                'count': 0,
-                'message': 'Job not completed yet'
-            })
+@app.route('/download', methods=['GET'])
+def download_file():
+    """Download a file from the workspace"""
+    try:
+        relative_path = request.args.get('path')
+        if not relative_path:
+            return jsonify({'error': 'Path parameter is required'}), 400
 
+        normalized_path = os.path.normpath(relative_path).lstrip('/\\')
+        full_path = os.path.join(WORKSPACE_DIR, normalized_path)
+        full_path = os.path.normpath(full_path)
 
-@app.route('/jobs/<job_id>/download', methods=['GET'])
-def download_job_output_no_filename(job_id):
-    """Download output file from a job (without specifying filename)"""
-    # Use empty string as filename to trigger "use first file" logic
-    return download_job_output(job_id, '')
+        if not full_path.startswith(os.path.normpath(WORKSPACE_DIR)):
+            return jsonify({'error': 'Invalid path'}), 400
 
-@app.route('/jobs/<job_id>/download/<path:filename>', methods=['GET'])
-def download_job_output(job_id, filename):
-    """Download an output file from a job"""
-    with job_lock:
-        if job_id not in jobs:
-            return jsonify({'error': 'Job not found'}), 404
-        
-        job = jobs[job_id]
-        
-        if job['status'] != 'completed':
-            return jsonify({'error': 'Job not completed'}), 400
-        
-        # Find output files
-        output_files = find_output_files(job)
-        
-        if not output_files:
-            print(f"[API] No output files found for job {job_id}")
-            # Try to find file directly in nested directory structure
-            video_name = get_original_video_name(job)
-            if video_name:
-                video_output_dir = os.path.join(OUTPUT_VIDEOS_DIR, video_name)
-                
-                # Look in subdirectories that start with "final_without_post_process_"
-                if os.path.exists(video_output_dir):
-                    for item in os.listdir(video_output_dir):
-                        item_path = os.path.join(video_output_dir, item)
-                        if os.path.isdir(item_path) and item.startswith('final_without_post_process_'):
-                            print(f"[API] Searching in directory: {item_path}")
-                            
-                            # Get all video files in this directory (should be only one)
-                            for file_in_dir in os.listdir(item_path):
-                                file_in_dir_path = os.path.join(item_path, file_in_dir)
-                                if os.path.isfile(file_in_dir_path) and any(file_in_dir.lower().endswith(ext) for ext in ALLOWED_EXTENSIONS):
-                                    output_files.append({
-                                        'name': file_in_dir,
-                                        'path': file_in_dir_path,
-                                        'size': os.path.getsize(file_in_dir_path),
-                                        'modified': os.path.getmtime(file_in_dir_path)
-                                    })
-                                    print(f"[API] Found file: {file_in_dir_path}")
-                                    break
-                            
-                            # If we found a file, we're done (there should only be one)
-                            if output_files:
-                                break
-        
-        if not output_files:
-            print(f"[API] No output files found for job {job_id}")
-            print(f"[API] Video name: {get_original_video_name(job)}")
-            return jsonify({'error': 'No output files found for this job'}), 404
-        
-        # Find the requested file
-        requested_file = None
-        
-        # If filename is 'download' or empty, use the first file
-        if filename == 'download' or not filename or filename == '':
-            requested_file = output_files[0]
-            print(f"[API] Using first available output file: {requested_file['name']}")
-        else:
-            # First, try to find exact match in output_files
-            for output_file in output_files:
-                if output_file['name'] == filename:
-                    requested_file = output_file
-                    break
-            
-            # If not found, try partial match
-            if not requested_file:
-                for output_file in output_files:
-                    if filename in output_file['name'] or output_file['name'].endswith(filename):
-                        requested_file = output_file
-                        break
-            
-            # If still not found, use the first file
-            if not requested_file:
-                requested_file = output_files[0]
-                print(f"[API] Filename not found, using first available file: {requested_file['name']}")
-        
-        if not requested_file or not os.path.exists(requested_file['path']):
-            print(f"[API] Output file not found. Requested filename: {filename}")
-            print(f"[API] Available output files: {[f['name'] for f in output_files]}")
-            print(f"[API] Video name: {get_original_video_name(job)}")
-            return jsonify({'error': 'Output file not found'}), 404
-        
-        # Security check: ensure file is within workspace
-        try:
-            abs_path = os.path.abspath(requested_file['path'])
-            abs_workspace = os.path.abspath(WORKSPACE_DIR)
-            if not abs_path.startswith(abs_workspace):
-                return jsonify({'error': 'Invalid file path'}), 403
-        except Exception as e:
-            return jsonify({'error': f'Path validation failed: {str(e)}'}), 500
-        
-        # Determine mimetype based on file extension
-        mimetype = 'video/mp4'  # default
-        filename_lower = requested_file['name'].lower()
-        if filename_lower.endswith('.avi'):
-            mimetype = 'video/x-msvideo'
-        elif filename_lower.endswith('.mov'):
-            mimetype = 'video/quicktime'
-        elif filename_lower.endswith('.mkv'):
-            mimetype = 'video/x-matroska'
-        elif filename_lower.endswith('.webm'):
-            mimetype = 'video/webm'
-        
-        # Send file
-        try:
-            return send_file(
-                requested_file['path'],
-                as_attachment=True,
-                download_name=requested_file['name'],
-                mimetype=mimetype
-            )
-        except Exception as e:
-            return jsonify({'error': f'Failed to send file: {str(e)}'}), 500
+        if not os.path.isfile(full_path):
+            return jsonify({'error': 'File not found'}), 404
+
+        filename = os.path.basename(full_path)
+        return send_file(full_path, as_attachment=True, download_name=filename)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 if __name__ == '__main__':

@@ -1,8 +1,11 @@
 import { v4 as uuidv4 } from 'uuid'
+import { ensureDataDir, readJsonFile, writeJsonFile, storagePaths } from './storage.js'
 
 export class NodeManager {
   constructor() {
     this.nodes = new Map()
+    ensureDataDir()
+    this.loadNodesFromDisk()
     // Initialize with some example nodes (you can remove this and add via API)
     this.initializeDefaultNodes()
   }
@@ -97,6 +100,7 @@ export class NodeManager {
     node.status = (await this.testNode(node)) ? 'online' : 'offline'
 
     this.nodes.set(node.id, node)
+    this.persistNodes()
     
     // Return node without password for security
     const { password, ...nodeWithoutPassword } = node
@@ -116,6 +120,7 @@ export class NodeManager {
     }
     
     this.nodes.set(id, updated)
+    this.persistNodes()
     
     // Return node without password for security
     const { password, ...nodeWithoutPassword } = updated
@@ -127,6 +132,7 @@ export class NodeManager {
       throw new Error('Node not found')
     }
     this.nodes.delete(id)
+    this.persistNodes()
   }
 
   async testNode(node) {
@@ -174,7 +180,7 @@ export class NodeManager {
     // Quick status check - use HTTP health check for HTTP nodes
     try {
       const nodeToCheck = this.nodes.get(node.id) || node
-      
+       
       // For HTTP nodes, do a quick health check
       if (nodeToCheck.connectionType === 'http' || !nodeToCheck.connectionType) {
         try {
@@ -211,6 +217,21 @@ export class NodeManager {
       }
     }
     return node || null
+  }
+
+  loadNodesFromDisk() {
+    const persistedNodes = readJsonFile(storagePaths.nodes, [])
+    if (Array.isArray(persistedNodes) && persistedNodes.length) {
+      persistedNodes.forEach((node) => {
+        if (node?.id) {
+          this.nodes.set(node.id, node)
+        }
+      })
+    }
+  }
+
+  persistNodes() {
+    writeJsonFile(storagePaths.nodes, Array.from(this.nodes.values()))
   }
 }
 

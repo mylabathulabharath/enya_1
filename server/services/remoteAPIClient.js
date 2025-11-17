@@ -123,33 +123,12 @@ export class RemoteAPIClient {
     }
   }
 
-  async getJob(jobId, timeout = 30000) {
+  async getJob(jobId) {
     try {
-      // Use a separate axios call with custom timeout for long-running jobs
-      const response = await axios.get(`${this.baseURL}/jobs/${jobId}`, {
-        timeout: timeout,
-        validateStatus: (status) => status < 500, // Don't throw on 4xx errors
-      })
-      
-      if (response.status >= 400) {
-        throw new Error(`HTTP ${response.status}: ${response.data?.error || 'Unknown error'}`)
-      }
-      
+      const response = await this.client.get(`/jobs/${jobId}`)
       return response.data
     } catch (error) {
-      if (error.response) {
-        // Server responded with error status
-        throw new Error(`Failed to get job: ${error.response.data?.error || error.message}`)
-      } else if (error.code === 'ECONNABORTED') {
-        // Request timeout
-        throw new Error(`Request timeout after ${timeout}ms`)
-      } else if (error.code === 'ECONNREFUSED') {
-        // Connection refused
-        throw new Error(`Connection refused to ${this.baseURL}`)
-      } else {
-        // Other errors
-        throw new Error(`Failed to get job: ${error.message}`)
-      }
+      throw new Error(`Failed to get job: ${error.message}`)
     }
   }
 
@@ -171,6 +150,18 @@ export class RemoteAPIClient {
     }
   }
 
+  async downloadFile(filePath) {
+    try {
+      const response = await this.client.get('/download', {
+        params: { path: filePath },
+        responseType: 'stream',
+      })
+      return response
+    } catch (error) {
+      throw new Error(`Failed to download file: ${error.message}`)
+    }
+  }
+
   async listFiles() {
     try {
       const response = await this.client.get('/files')
@@ -178,31 +169,6 @@ export class RemoteAPIClient {
     } catch (error) {
       throw new Error(`Failed to list files: ${error.message}`)
     }
-  }
-
-  async listJobOutputs(jobId) {
-    try {
-      const response = await this.client.get(`/jobs/${jobId}/outputs`)
-      return response.data
-    } catch (error) {
-      throw new Error(`Failed to list job outputs: ${error.message}`)
-    }
-  }
-
-  async downloadJobOutput(jobId, filename) {
-    try {
-      const response = await this.client.get(`/jobs/${jobId}/download/${filename}`, {
-        responseType: 'stream',
-        timeout: 600000, // 10 minutes for large video files
-      })
-      return response.data
-    } catch (error) {
-      throw new Error(`Failed to download job output: ${error.message}`)
-    }
-  }
-
-  getDownloadUrl(jobId, filename) {
-    return `${this.baseURL}/jobs/${jobId}/download/${encodeURIComponent(filename)}`
   }
 }
 

@@ -33,6 +33,3 @@ Thumbs.db
 id_rsa
 id_rsa.pub
 
-# Data storage (jobs, nodes, etc.)
-data/
-

@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Trash2,
   Download,
+  Share2,
 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 
@@ -27,6 +28,22 @@ function Dashboard() {
   const [nodes, setNodes] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedTab, setSelectedTab] = useState('all')
+  const [selectedJobId, setSelectedJobId] = useState(null)
+
+  const sortJobsByDate = (jobList = []) => {
+    return [...jobList].sort((a, b) => {
+      const getTimestamp = (job) => {
+        const timestamp =
+          job.createdAt ||
+          job.updatedAt ||
+          job.created_at ||
+          job.updated_at ||
+          0
+        return timestamp ? new Date(timestamp).getTime() : 0
+      }
+      return getTimestamp(b) - getTimestamp(a)
+    })
+  }
 
   const fetchData = async () => {
     try {
@@ -34,8 +51,16 @@ function Dashboard() {
         jobsAPI.getAll().catch(err => ({ data: [] })),
         nodesAPI.getAll().catch(err => ({ data: [] })),
       ])
-      setJobs(jobsRes.data || [])
+      const sortedJobs = sortJobsByDate(jobsRes.data || [])
+      setJobs(sortedJobs)
       setNodes(nodesRes.data || [])
+      setSelectedJobId((currentId) => {
+        if (sortedJobs.length === 0) {
+          return null
+        }
+        const stillExists = sortedJobs.find(job => job.id === currentId)
+        return stillExists ? currentId : sortedJobs[0].id
+      })
     } catch (error) {
       console.error('Error fetching data:', error)
     } finally {
@@ -74,57 +99,28 @@ function Dashboard() {
     }
   }
 
-  const handleDownload = async (jobId) => {
-    try {
-      console.log(`[Dashboard] Starting download for job ${jobId}`)
-      
-      // Get output files for the job to verify they exist
-      const response = await jobsAPI.getOutputs(jobId)
-      const outputFiles = response.data?.output_files || []
-      
-      if (outputFiles.length === 0) {
-        alert('No output files available for this job. The job may not have completed yet.')
-        return
-      }
-      
-      // There should be only one file in the final_without_post_process directory
-      // Download the first (and only) file
-      const fileToDownload = outputFiles[0]
-      
-      console.log(`[Dashboard] Downloading file: ${fileToDownload.name} (size: ${(fileToDownload.size / 1024 / 1024).toFixed(2)} MB)`)
-      
-      // Download the file - filename is optional, server will find the file
-      jobsAPI.downloadOutput(jobId, fileToDownload.name)
-    } catch (error) {
-      console.error('[Dashboard] Error downloading output:', error)
-      const errorMessage = error.response?.data?.error || error.message || 'Failed to download output file'
-      alert(`Failed to download output file: ${errorMessage}`)
+  const handleDownloadJob = (job) => {
+    if (!job?.outputPath) {
+      alert('Output file is not ready for download yet.')
+      return
     }
+    window.open(`/api/jobs/${job.id}/download`, '_blank', 'noopener,noreferrer')
   }
 
-  const handleRefreshJob = async (jobId) => {
-    try {
-      console.log(`[Dashboard] Refreshing job ${jobId}`)
-      const response = await jobsAPI.refresh(jobId)
-      console.log('[Dashboard] Refresh response:', response.data)
-      
-      if (response.data?.error) {
-        alert(`Failed to refresh: ${response.data.error}`)
-      } else {
-        alert(response.data?.message || 'Job status refreshed successfully')
-      }
-      
-      fetchData() // Refresh the job list
-    } catch (error) {
-      console.error('[Dashboard] Error refreshing job:', error)
-      const errorMessage = error.response?.data?.error || error.message || 'Failed to refresh job status'
-      alert(`Failed to refresh job: ${errorMessage}`)
-    }
+  const handleShareJob = () => {
+    alert('Share functionality will be available soon.')
   }
 
   const filteredJobs = selectedTab === 'all' 
     ? jobs 
     : jobs.filter(job => job.status === selectedTab)
+
+  const displayedJobs = filteredJobs.slice(0, 10)
+  const selectedJob = jobs.find(job => job.id === selectedJobId) || null
+
+  const handleRowSelect = (jobId) => {
+    setSelectedJobId(jobId)
+  }
 
   const stats = {
     total: jobs.length,
@@ -203,39 +199,53 @@ function Dashboard() {
       <div className="card">
         <h2 className="text-xl font-semibold text-gray-900 mb-4">Nodes</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {nodes.map((node) => (
-            <div
-              key={node.id}
-              className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
-            >
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-semibold text-gray-900">{node.name}</h3>
-                <span
-                  className={`px-2 py-1 rounded-full text-xs font-medium ${
-                    node.status === 'online'
-                      ? 'bg-green-100 text-green-800'
-                      : 'bg-red-100 text-red-800'
-                  }`}
-                >
-                  {node.status}
-                </span>
+          {nodes.map((node) => {
+            const activeJobs = node.activeJobs ?? node.jobs ?? 0
+            const isOnline = node.status === 'online'
+            const activityLabel = !isOnline ? 'Offline' : activeJobs > 0 ? 'Running' : 'Idle'
+            const activityBadgeClass = !isOnline
+              ? 'bg-red-100 text-red-800'
+              : activeJobs > 0
+                ? 'bg-blue-100 text-blue-800'
+                : 'bg-gray-100 text-gray-700'
+
+            return (
+              <div
+                key={node.id}
+                className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-semibold text-gray-900">{node.name}</h3>
+                  <div className="flex items-center space-x-2">
+                    <span
+                      className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        isOnline ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                      }`}
+                    >
+                      {isOnline ? 'Online' : 'Offline'}
+                    </span>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${activityBadgeClass}`}>
+                      {activityLabel}
+                    </span>
+                  </div>
+                </div>
+                <div className="space-y-2 text-sm text-gray-600">
+                  <div className="flex items-center">
+                    <Cpu className="h-4 w-4 mr-2" />
+                    <span>{node.gpu || 'N/A'}</span>
+                  </div>
+                  <div className="flex items-center">
+                    <HardDrive className="h-4 w-4 mr-2" />
+                    <span>{activeJobs} active {activeJobs === 1 ? 'job' : 'jobs'}</span>
+                  </div>
+                  <div className="flex items-center">
+                    <Activity className="h-4 w-4 mr-2" />
+                    <span>{node.location || 'Remote'}</span>
+                  </div>
+                </div>
               </div>
-              <div className="space-y-2 text-sm text-gray-600">
-                <div className="flex items-center">
-                  <Cpu className="h-4 w-4 mr-2" />
-                  <span>{node.gpu || 'N/A'}</span>
-                </div>
-                <div className="flex items-center">
-                  <HardDrive className="h-4 w-4 mr-2" />
-                  <span>{node.jobs || 0} active jobs</span>
-                </div>
-                <div className="flex items-center">
-                  <Activity className="h-4 w-4 mr-2" />
-                  <span>{node.location || 'Remote'}</span>
-                </div>
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </div>
 
@@ -274,14 +284,20 @@ function Dashboard() {
               </tr>
             </thead>
             <tbody>
-              {filteredJobs.map((job) => {
+              {displayedJobs.map((job) => {
                 const StatusIcon = statusConfig[job.status]?.icon || Clock
                 const statusColor = statusConfig[job.status]?.color || 'text-gray-600'
                 const statusBg = statusConfig[job.status]?.bg || 'bg-gray-50'
                 const statusLabel = statusConfig[job.status]?.label || job.status
 
                 return (
-                  <tr key={job.id} className="border-b border-gray-100 hover:bg-gray-50">
+                  <tr
+                    key={job.id}
+                    onClick={() => handleRowSelect(job.id)}
+                    className={`border-b border-gray-100 cursor-pointer transition-colors ${
+                      selectedJobId === job.id ? 'bg-primary-50' : 'hover:bg-gray-50'
+                    }`}
+                  >
                     <td className="py-3 px-4 text-sm text-gray-900 font-mono">
                       {job.id.slice(0, 8)}...
                     </td>
@@ -314,18 +330,12 @@ function Dashboard() {
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex space-x-2">
-                        {(job.status === 'running' || job.status === 'failed') && (
-                          <button
-                            onClick={() => handleRefreshJob(job.id)}
-                            className="text-blue-600 hover:text-blue-800"
-                            title="Refresh Status"
-                          >
-                            <RefreshCw className="h-4 w-4" />
-                          </button>
-                        )}
                         {job.status === 'running' && (
                           <button
-                            onClick={() => handleCancelJob(job.id)}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              handleCancelJob(job.id)
+                            }}
                             className="text-red-600 hover:text-red-800"
                             title="Cancel"
                           >
@@ -335,24 +345,36 @@ function Dashboard() {
                         {job.status === 'completed' && (
                           <>
                             <button
-                              onClick={() => handleDownload(job.id)}
-                              className="text-green-600 hover:text-green-800"
-                              title="Download"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                handleDownloadJob(job)
+                              }}
+                              className={`text-primary-600 hover:text-primary-800 flex items-center ${
+                                !job.outputPath ? 'opacity-50 cursor-not-allowed' : ''
+                              }`}
+                              title={job.outputPath ? 'Download video' : 'Output not available yet'}
+                              disabled={!job.outputPath}
                             >
                               <Download className="h-4 w-4" />
                             </button>
                             <button
-                              onClick={() => handleDeleteJob(job.id)}
-                              className="text-gray-600 hover:text-red-600"
-                              title="Delete"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                handleShareJob(job)
+                              }}
+                              className="text-indigo-600 hover:text-indigo-800 flex items-center"
+                              title="Share"
                             >
-                              <Trash2 className="h-4 w-4" />
+                              <Share2 className="h-4 w-4" />
                             </button>
                           </>
                         )}
-                        {(job.status === 'failed' || job.status === 'cancelled') && (
+                        {(job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') && (
                           <button
-                            onClick={() => handleDeleteJob(job.id)}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              handleDeleteJob(job.id)
+                            }}
                             className="text-gray-600 hover:text-red-600"
                             title="Delete"
                           >
@@ -369,6 +391,61 @@ function Dashboard() {
           {filteredJobs.length === 0 && (
             <div className="text-center py-8 text-gray-500">
               No jobs found
+            </div>
+          )}
+        </div>
+        <div className="mt-6 border border-gray-200 rounded-lg p-4 bg-gray-50">
+          {selectedJob ? (
+            <>
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div>
+                  <p className="text-sm text-gray-500">Job ID</p>
+                  <p className="font-mono text-gray-900">{selectedJob.id}</p>
+                </div>
+                <div className="flex flex-wrap gap-6 text-sm">
+                  <div>
+                    <p className="text-gray-500">Node</p>
+                    <p className="text-gray-900">{selectedJob.nodeName || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Status</p>
+                    <p className="text-gray-900 capitalize">{selectedJob.status}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Progress</p>
+                    <p className="text-gray-900">{selectedJob.progress || 0}%</p>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-4">
+                <p className="text-sm font-medium text-gray-700 mb-2">Logs</p>
+                <pre className="bg-black text-green-400 text-xs md:text-sm p-3 rounded-lg max-h-80 overflow-y-auto whitespace-pre-wrap">
+                  {selectedJob.logs?.trim() || 'Logs will appear here once the remote node starts streaming output.'}
+                </pre>
+              </div>
+              <div className="mt-4 space-y-2">
+                <p className="text-sm font-medium text-gray-700">Output video</p>
+                {selectedJob.outputPath ? (
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between bg-white border border-gray-200 rounded-lg p-3">
+                    <code className="text-sm text-gray-800 break-words">{selectedJob.outputPath}</code>
+                    <button
+                      onClick={() => handleDownloadJob(selectedJob)}
+                      className="btn-primary mt-3 md:mt-0 flex items-center justify-center"
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Download
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">
+                    The final video path will appear here once the job finishes successfully.
+                  </p>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="text-center text-gray-500">
+              Select a job to view detailed logs
             </div>
           )}
         </div>

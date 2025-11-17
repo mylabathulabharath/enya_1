@@ -1,13 +1,38 @@
 import express from 'express'
 import { nodeManager } from '../services/nodeManager.js'
+import { jobManager } from '../services/jobStore.js'
 
 const router = express.Router()
 
 // Get all nodes
 router.get('/', async (req, res) => {
   try {
-    const nodes = await nodeManager.getAllNodes()
-    res.json(nodes)
+    const [nodes, jobs] = await Promise.all([
+      nodeManager.getAllNodes(),
+      jobManager.getAllJobs(),
+    ])
+
+    const activeStatuses = new Set(['pending', 'running'])
+    const jobCounts = jobs.reduce((acc, job) => {
+      if (job.nodeId && activeStatuses.has(job.status)) {
+        acc[job.nodeId] = (acc[job.nodeId] || 0) + 1
+      }
+      return acc
+    }, {})
+
+    const enrichedNodes = nodes.map((node) => {
+      const activeJobs = jobCounts[node.id] || 0
+      const activityStatus =
+        node.status !== 'online' ? 'offline' : activeJobs > 0 ? 'running' : 'idle'
+      return {
+        ...node,
+        activeJobs,
+        jobs: activeJobs, // maintain backwards compatibility
+        activityStatus,
+      }
+    })
+
+    res.json(enrichedNodes)
   } catch (error) {
     res.status(500).json({ error: error.message })
   }

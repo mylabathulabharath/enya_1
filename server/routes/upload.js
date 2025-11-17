@@ -5,11 +5,10 @@ import { RemoteAPIClient } from '../services/remoteAPIClient.js'
 
 const router = express.Router()
 
-// Configure multer for file uploads
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 10 * 1024 * 1024 * 1024, // 10GB
+    fileSize: 10 * 1024 * 1024 * 1024,
   },
   fileFilter: (req, file, cb) => {
     const allowedTypes = ['video/mp4', 'video/avi', 'video/quicktime', 'video/x-msvideo', 'video/webm']
@@ -21,7 +20,6 @@ const upload = multer({
   },
 })
 
-// Upload file to node
 router.post('/:nodeId', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
@@ -33,15 +31,12 @@ router.post('/:nodeId', upload.single('file'), async (req, res) => {
       return res.status(404).json({ error: 'Node not found' })
     }
 
-    // Check if node supports HTTP API
     if (node.connectionType !== 'http' && node.connectionType !== undefined) {
       return res.status(400).json({ error: 'File upload only supported for HTTP API nodes' })
     }
 
-    // Create API client
     const apiClient = new RemoteAPIClient(node)
 
-    // Upload directly using the API client
     const result = await apiClient.uploadFile(
       req.file.buffer,
       req.file.originalname,

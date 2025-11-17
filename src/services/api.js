@@ -1,7 +1,6 @@
 import axios from 'axios'
 
-// Use environment variable for API URL, fallback to /api for local development
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
+const API_BASE_URL = '/api'
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -15,16 +14,6 @@ export const jobsAPI = {
   create: (jobData) => api.post('/jobs', jobData),
   cancel: (id) => api.post(`/jobs/${id}/cancel`),
   delete: (id) => api.delete(`/jobs/${id}`),
-  refresh: (id) => api.post(`/jobs/${id}/refresh`),
-  getOutputs: (id) => api.get(`/jobs/${id}/outputs`),
-  downloadOutput: (id, filename) => {
-    // Always use the download endpoint without filename
-    // The server will find and download the first (and only) file
-    const url = filename 
-      ? `/api/jobs/${id}/download/${encodeURIComponent(filename)}`
-      : `/api/jobs/${id}/download`
-    window.open(url, '_blank')
-  },
 }
 
 // Nodes API
